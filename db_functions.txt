@@ -1,0 +1,119 @@
+
+//Функция для вставки пикета
+CREATE FUNCTION insert_picket(picket_num integer, store_num integer, field_name char, goods_name char, goods_weight integer, goods_volume integer, max_weight integer, max_volume integer)
+RETURNS void AS
+$BODY$
+      BEGIN
+        INSERT INTO last_info (picket_num,store_num,field_name,goods_name,goods_weight,goods_volume,max_weight,max_volume)
+        VALUES(picket_num, store_num, field_name,goods_name, goods_weight, goods_volume, max_weight, max_volume);
+      END;
+  $BODY$
+  LANGUAGE 'plpgsql';
+___________________________________________________________________
+//Удаление пикета
+CREATE FUNCTION delete_picket(IN _picket_num integer, IN _picket_num integer)
+RETURNS void AS
+$BODY$
+BEGIN
+
+  DELETE FROM last_info WHERE picket_num = _picket_num AND store_num = _store_num ;
+
+END;
+$BODY$
+LANGUAGE 'plpgsql';
+___________________________________________________________________
+//Обновление информации по грузу в пикете
+CREATE FUNCTION update_goods(_picket_num integer, _store_num integer, _goods_name char, _goods_volume integer, _goods_weight integer)
+RETURNS void AS
+$BODY$
+DECLARE _table_name text :=  to_char(now()::timestamp, 'HH12:MI:SS:MS_DD_Mon_YYYY');
+      BEGIN
+		EXECUTE format('
+   CREATE TABLE IF NOT EXISTS %I AS TABLE last_info', _table_name);
+		EXECUTE format('
+   INSERT INTO %I SELECT * FROM last_info', _table_name);
+        UPDATE last_info SET goods_name = _goods_name, goods_volume = _goods_volume, goods_weight = _goods_weight
+	WHERE picket_num = _picket_num AND store_num = _store_num ;
+      END;
+  $BODY$
+  LANGUAGE 'plpgsql';
+________________________________________________________________________
+//Проверка на существование пикета
+CREATE OR REPLACE FUNCTION picket_exsist(IN _picket_num int, IN _store_num, OUT exsist bool) AS $$
+BEGIN
+    IF (SELECT EXISTS(SELECT picket_num FROM last_info WHERE picket_num=_picket_num AND store_num = _store_num)) THEN
+		exsist := true;
+	ELSE
+		exsist := false;
+	END IF;
+END;
+$$ LANGUAGE plpgsql
+________________________________________________________________________
+//Получение площадки у пикета
+CREATE FUNCTION get_field_picket(IN picket_name int, IN room int) RETURNS text AS $$
+BEGIN
+RETURN(
+	SELECT field_name FROM last_info WHERE picket_num = picket_name AND store_num = room);
+
+END;
+$$ LANGUAGE plpgsql
+________________________________________________________________________
+//Задать новое поле пикетам, которые состоят в старом поле
+CREATE FUNCTION set_field_where_field(_old_field char, _new_field char, room integer)
+RETURNS void AS
+$BODY$
+      BEGIN
+	UPDATE last_info SET field_name = _new_field WHERE field_name = _old_field AND store_num = room ;
+      END;
+  $BODY$
+  LANGUAGE 'plpgsql';
+________________________________________________________________________
+//Задать новое поле пикету
+CREATE FUNCTION set_field_picket(_picket_name int, _new_field char, room integer)
+RETURNS void AS
+$BODY$
+      BEGIN
+	UPDATE last_info SET field_name = _new_field WHERE picket_num = _picket_name AND store_num = room ;
+      END;
+  $BODY$
+  LANGUAGE 'plpgsql';
+________________________________________________________________________
+//Сделать копию таблицы в таблицу с текущей даты и времени
+CREATE FUNCTION to_history()
+RETURNS void AS
+$BODY$
+DECLARE _table_name text :=  to_char(now()::timestamp, 'HH12:MI:SS:MS_DD_Mon_YYYY');
+      BEGIN
+		EXECUTE format('
+   CREATE TABLE IF NOT EXISTS %I AS TABLE last_info', _table_name);
+		EXECUTE format('
+   INSERT INTO %I SELECT * FROM last_info', _table_name);
+      END;
+  $BODY$
+  LANGUAGE 'plpgsql';
+________________________________________________________________________
+//Удаление истории
+CREATE OR REPLACE FUNCTION drop_table(IN _key_word TEXT)
+RETURNS void
+LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    row     record;
+BEGIN
+    FOR row IN
+        SELECT
+            table_schema,
+            table_name
+        FROM
+            information_schema.tables
+        WHERE
+            table_type = 'BASE TABLE'
+        AND
+            table_name ILIKE (_key_word || '%')
+    LOOP
+        EXECUTE 'DROP TABLE ' || quote_ident(row.table_schema) || '.' || quote_ident(row.table_name);
+        RAISE INFO 'Dropped table: %', quote_ident(row.table_schema) || '.' || quote_ident(row.table_name);
+    END LOOP;
+END;
+$$;
